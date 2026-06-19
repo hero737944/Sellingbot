@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TgStoreAPI - Admin Panel</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <div class="login-container" id="login-container">
+            <div class="login-box">
+                <h1>🔐 TgStoreAPI</h1>
+                <h3>Admin Panel</h3>
+                <input type="password" id="password-input" placeholder="Enter Password" onkeydown="if(event.key==='Enter') login()">
+                <button onclick="login()">Login</button>
+                <p id="login-error" style="color:red;display:none;">❌ Wrong password!</p>
+            </div>
+        </div>
+        
+        <div id="dashboard" style="display:none;">
+            <div class="header">
+                <h1>👑 TgStoreAPI - Admin Panel</h1>
+                <div class="header-info">
+                    <span id="time-display"></span>
+                    <button onclick="logout()" class="logout-btn">🚪 Logout</button>
+                </div>
+            </div>
+            
+            <div class="stats-container" id="stats-container">
+                <div class="stat-card">
+                    <h3>👤 Total Users</h3>
+                    <p id="total-users">0</p>
+                </div>
+                <div class="stat-card">
+                    <h3>💰 Total Deposits</h3>
+                    <p id="total-deposits">₹0</p>
+                </div>
+                <div class="stat-card">
+                    <h3>🛒 Total Sales</h3>
+                    <p id="total-sales">₹0</p>
+                </div>
+                <div class="stat-card">
+                    <h3>📱 Active Users</h3>
+                    <p id="active-users">0</p>
+                </div>
+            </div>
+            
+            <div class="menu-grid">
+                <div class="menu-card" onclick="loadPage('pending')">
+                    <span class="icon">📋</span>
+                    <h3>Pending Deposits</h3>
+                    <p>Approve or reject payments</p>
+                </div>
+                <div class="menu-card" onclick="loadPage('products')">
+                    <span class="icon">📦</span>
+                    <h3>Products</h3>
+                    <p>Add/edit/delete products</p>
+                </div>
+                <div class="menu-card" onclick="loadPage('payment')">
+                    <span class="icon">💳</span>
+                    <h3>Payment Methods</h3>
+                    <p>Manage payment settings</p>
+                </div>
+                <div class="menu-card" onclick="loadPage('rate')">
+                    <span class="icon">💱</span>
+                    <h3>Rate Settings</h3>
+                    <p>Change USDT to INR rate</p>
+                </div>
+                <div class="menu-card" onclick="loadPage('referral')">
+                    <span class="icon">🎁</span>
+                    <h3>Referral Settings</h3>
+                    <p>Manage referral program</p>
+                </div>
+                <div class="menu-card" onclick="loadPage('broadcast')">
+                    <span class="icon">📢</span>
+                    <h3>Broadcast</h3>
+                    <p>Send message to all users</p>
+                </div>
+                <div class="menu-card" onclick="loadPage('links')">
+                    <span class="icon">🔗</span>
+                    <h3>Join Links</h3>
+                    <p>Change channel/group links</p>
+                </div>
+                <div class="menu-card" onclick="loadPage('password')">
+                    <span class="icon">🔐</span>
+                    <h3>Password</h3>
+                    <p>Change admin password</p>
+                </div>
+            </div>
+            
+            <div id="content-area">
+                <p style="text-align:center;color:#888;padding:40px;">Select an option from above to manage</p>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+                                          </html>
