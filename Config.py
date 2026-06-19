@@ -6,8 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==================== BOT TOKENS ====================
-USER_BOT_TOKEN = os.getenv("USER_BOT_TOKEN", "YOUR_USER_BOT_TOKEN_HERE")
-ADMIN_BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN", "YOUR_ADMIN_BOT_TOKEN_HERE")
+USER_BOT_TOKEN = os.getenv("USER_BOT_TOKEN", "8878328774:AAFk5D-Mg9DUaBImlB7K_92k_h5SSf8YRnU)
+ADMIN_BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN", "8988570891:AAGFBq0-AiHQjkpUmnKevptbQIgMC30HPrg)
 
 # ==================== OWNER DETAILS ====================
 OWNER_ID = 8605943790  # Your numeric Telegram ID
