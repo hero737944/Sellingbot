@@ -692,3 +692,246 @@ async function showReferral(userId, messageId) {
   const me = await bot.getMe();
   const botUsername = me.username;
   const refLink = 'https://t.me/' + botUsern
+  ame + '?start=ref_' + userId;
+
+  const lines = [];
+  lines.push('Refer and Earn');
+  lines.push('');
+  lines.push('Referrals: ' + u.referral_count);
+  lines.push('Total Earned: $' + earnedUsdt.toFixed(2) + ' / Rs ' + u.referral_earned.toFixed(0));
+  lines.push('Reward: Rs ' + refReward + ' per validated join');
+  lines.push('');
+  lines.push('Your Referral Link:');
+  lines.push(refLink);
+  lines.push('');
+  lines.push('Share your link and earn Rs ' + refReward + ' for every person who joins!');
+
+  const text = lines.join('\n');
+
+  await bot.editMessageText(text, {
+    chat_id: userId,
+    message_id: messageId,
+    reply_markup: utils.getBackKeyboard()
+  });
+}
+
+async function showSupport(userId, messageId) {
+  const supportSetting = await db.getSetting('support_link');
+  const supportLink = supportSetting || config.SUPPORT_LINK;
+
+  const lines = [];
+  lines.push('Support and Relevant Information');
+  lines.push('');
+  lines.push('All purchases made are final - no refunds or replacements will be provided under any circumstances, and all products are bought entirely at the buyer\'s own risk.');
+
+  const text = lines.join('\n');
+
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: 'Contact Support', url: supportLink }],
+      [{ text: 'Main Menu', callback_data: 'main_menu' }]
+    ]
+  };
+
+  await bot.editMessageText(text, {
+    chat_id: userId,
+    message_id: messageId,
+    reply_markup: keyboard
+  });
+}
+
+bot.on('message', async (msg) => {
+  const userId = msg.from.id;
+
+  if (msg.text && msg.text.indexOf('/') === 0) {
+    return;
+  }
+
+  const banned = await utils.isUserBanned(userId);
+  if (banned) {
+    return;
+  }
+
+  const state = getState(userId);
+
+  if (state.waitingDepositAmount && msg.text) {
+    await handleDepositAmount(userId, msg.text.trim());
+    return;
+  }
+
+  if (state.waitingScreenshot && msg.photo) {
+    await handleScreenshot(userId, msg.photo);
+    return;
+  }
+});
+
+async function handleDepositAmount(userId, text) {
+  const amount = parseFloat(text);
+
+  if (isNaN(amount)) {
+    await bot.sendMessage(userId, 'Please enter a valid number.');
+    return;
+  }
+
+  const minSetting = await db.getSetting('min_deposit_inr');
+  const minDep = parseFloat(minSetting) || 20;
+
+  if (amount < minDep) {
+    await bot.sendMessage(userId, 'Minimum deposit is Rs ' + minDep.toFixed(0));
+    return;
+  }
+
+  const state = getState(userId);
+  state.waitingDepositAmount = false;
+
+  const upiApp = state.upiApp || 'any';
+
+  const appNames = {
+    gpay: 'GPay',
+    fampay: 'FamPay',
+    any: 'UPI'
+  };
+  const appName = appNames[upiApp] || 'UPI';
+
+  const qr = await db.getActiveQR('upi', upiApp);
+
+  const upiIdSetting = await db.getSetting('upi_id');
+  const upiId = upiIdSetting || 'yourname@upi';
+
+  const refId = utils.generateRefId(userId);
+  const amountUsdt = await utils.inrToUsdt(amount);
+
+  const database = db.getDB();
+  await database.run(
+    'INSERT INTO deposits (user_id, amount_inr, ref_id, payment_method, upi_app) VALUES (?, ?, ?, ?, ?)',
+    userId,
+    amount,
+    refId,
+    'upi',
+    upiApp
+  );
+
+  state.currentRefId = refId;
+  state.waitingScreenshot = true;
+
+  const lines = [];
+  lines.push('Scan The Above QR Code to Pay:');
+  lines.push('Rs ' + amount.toFixed(0) + ' ($' + amountUsdt.toFixed(2) + ')');
+  lines.push('');
+  lines.push('Ref ID: ' + refId);
+  lines.push('UPI ID: ' + upiId);
+  lines.push('');
+  lines.push('Open ' + appName + ' and scan the QR');
+  lines.push('or manually enter UPI ID above');
+  lines.push('Pay exactly Rs ' + amount.toFixed(0) + ' (Do Not Change The Amount)');
+  lines.push("After Successful Payment Click 'I Have Paid' below");
+  lines.push('');
+  lines.push('The QR Code Is Only Valid For 15 Minutes!');
+
+  const text2 = lines.join('\n');
+
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: 'I Have Paid', callback_data: 'i_have_paid' }],
+      [{ text: 'Cancel Deposit', callback_data: 'cancel_deposit' }]
+    ]
+  };
+
+  if (qr && qr.file_id) {
+    await bot.sendPhoto(userId, qr.file_id, {
+      caption: text2,
+      reply_markup: keyboard
+    });
+  } else {
+    const fallbackText = appName + ' Payment\n\n' + text2;
+    await bot.sendMessage(userId, fallbackText, {
+      reply_markup: keyboard
+    });
+  }
+}
+
+function askPaymentScreenshot(userId) {
+  const state = getState(userId);
+  state.waitingScreenshot = true;
+
+  const lines = [];
+  lines.push('Payment Noted!');
+  lines.push('');
+  lines.push('Please send a screenshot of your payment now.');
+  lines.push('');
+  lines.push('Send the screenshot image...');
+
+  const text = lines.join('\n');
+
+  bot.sendMessage(userId, text);
+}
+
+async function handleScreenshot(userId, photos) {
+  const state = getState(userId);
+  state.waitingScreenshot = false;
+
+  const fileId = photos[photos.length - 1].file_id;
+  const refId = state.currentRefId;
+
+  const database = db.getDB();
+
+  await database.run(
+    'UPDATE deposits SET screenshot_file_id = ? WHERE ref_id = ?',
+    fileId,
+    refId
+  );
+
+  const deposit = await database.get(
+    'SELECT * FROM deposits WHERE ref_id = ?',
+    refId
+  );
+
+  const waitLines = [];
+  waitLines.push('Please wait...');
+  waitLines.push('');
+  waitLines.push('Our team is reviewing your payment.');
+  waitLines.push('You will be notified once approved!');
+  const waitText = waitLines.join('\n');
+
+  await bot.sendMessage(userId, waitText, {
+    reply_markup: utils.getBackKeyboard()
+  });
+
+  if (deposit) {
+    const dbUser = await db.getUser(userId);
+
+    const adminLines = [];
+    adminLines.push('New Deposit Request!');
+    adminLines.push('');
+    adminLines.push('User: ' + dbUser.full_name + ' (@' + (dbUser.username || 'N/A') + ')');
+    adminLines.push('ID: ' + userId);
+    adminLines.push('Amount: Rs ' + deposit.amount_inr.toFixed(0));
+    adminLines.push('Ref ID: ' + refId);
+    adminLines.push('Method: ' + (deposit.upi_app || 'UPI'));
+
+    const adminText = adminLines.join('\n');
+
+    const adminKeyboard = {
+      inline_keyboard: [
+        [
+          { text: 'Approve', callback_data: 'adm_approve_' + refId },
+          { text: 'Reject', callback_data: 'adm_reject_' + refId }
+        ],
+        [{ text: 'Send Message', callback_data: 'adm_msg_' + userId }]
+      ]
+    };
+
+    try {
+      await bot.sendPhoto(config.OWNER_ID, fileId, {
+        caption: adminText,
+        reply_markup: adminKeyboard
+      });
+    } catch (err) {
+      console.error('Failed to notify admin:', err.message);
+    }
+  }
+}
+
+console.log('User bot loaded!');
+
+module.exports = bot;
