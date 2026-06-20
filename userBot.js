@@ -5,7 +5,6 @@ const utils = require('./utils');
 
 const bot = new TelegramBot(config.USER_BOT_TOKEN, { polling: true });
 
-// Temporary in-memory state per user (deposit flow, screenshot wait, etc)
 const userState = {};
 
 function getState(userId) {
@@ -13,29 +12,25 @@ function getState(userId) {
   return userState[userId];
 }
 
-// ─────────────────────────────────────────
-// /start handler
-// ─────────────────────────────────────────
 bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
   const userId = msg.from.id;
   const username = msg.from.username || '';
-  const fullName = `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim();
+  const fullName = (msg.from.first_name || '') + ' ' + (msg.from.last_name || '');
 
   if (await utils.isUserBanned(userId)) {
     return bot.sendMessage(userId, '🚫 You have been banned from using this bot.');
   }
 
-  // Handle referral
   let referredBy = null;
   const arg = match && match[1];
-  if (arg && arg.startsWith('ref_')) {
+  if (arg && arg.indexOf('ref_') === 0) {
     const refUid = parseInt(arg.replace('ref_', ''));
     if (refUid && refUid !== userId) referredBy = refUid;
   }
 
   let dbUser = await db.getUser(userId);
   if (!dbUser) {
-    await db.createUser(userId, username, fullName, referredBy);
+    await db.createUser(userId, username, fullName.trim(), referredBy);
     dbUser = await db.getUser(userId);
   }
 
@@ -46,31 +41,30 @@ bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
   await showMainMenu(userId);
 });
 
-// ─────────────────────────────────────────
-// Terms & Conditions — NORMAL BUTTONS (no web app)
-// ─────────────────────────────────────────
 async function sendTermsMessage(userId) {
   const groupLink = await db.getSetting('group_link') || config.GROUP_LINK;
   const channelLink = await db.getSetting('channel_link') || config.CHANNEL_LINK;
   const botName = await db.getSetting('bot_name') || config.BOT_NAME;
 
-  const text =
-`👋 *Welcome to ${botName}!*
+  const lines = [];
+  lines.push('👋 *Welcome to ' + botName + '!*');
+  lines.push('');
+  lines.push('To start using the bot, please complete these steps:');
+  lines.push('');
+  lines.push('📋 *Step 1 — Our Rules:*');
+  lines.push('🔒 Accounts & sessions are sold as-is — keep your files secure');
+  lines.push('⏰ Log in one account at a time, wait 2–3 min between each');
+  lines.push('🚫 No spam or mass messaging — misused accounts may freeze');
+  lines.push('💰 Failed OTPs are auto-refunded to your balance');
+  lines.push('🎁 One genuine account per person — fake referrals void rewards');
+  lines.push('');
+  lines.push('📢 *Step 2 — Join our community:*');
+  lines.push('📢 Channel');
+  lines.push('👥 Group');
+  lines.push('');
+  lines.push('Tap the join buttons above, then review and accept the terms below 👇');
 
-To start using the bot, please complete these steps:
-
-📋 *Step 1 — Our Rules:*
-🔒 Accounts & sessions are sold as-is — keep your files secure
-⏰ Log in one account at a time, wait 2–3 min between each
-🚫 No spam or mass messaging — misused accounts may freeze
-💰 Failed OTPs are auto-refunded to your balance
-🎁 One genuine account per person — fake referrals void rewards
-
-📢 *Step 2 — Join our community:*
-📢 Channel
-👥 Group
-
-Tap the join buttons above, then review and accept the terms below 👇`;
+  const text = lines.join('\n');
 
   const keyboard = {
     inline_keyboard: [
@@ -84,23 +78,25 @@ Tap the join buttons above, then review and accept the terms below 👇`;
 }
 
 async function sendTermsDetail(userId, messageId) {
-  const text =
-`📋 *Terms & Conditions*
+  const lines = [];
+  lines.push('📋 *Terms & Conditions*');
+  lines.push('');
+  lines.push('Please read and accept before using the bot. This keeps your purchases protected and your account safe.');
+  lines.push('');
+  lines.push('🔒 Accounts & sessions are sold *as-is*. Keep your files secure and never share them.');
+  lines.push('');
+  lines.push('⏰ Log in *one account at a time*, waiting 2–3 minutes between each. Rushing gets accounts frozen.');
+  lines.push('');
+  lines.push('🚫 No spam, mass messaging, or abuse. Misused accounts may freeze — that is *not our responsibility*.');
+  lines.push('');
+  lines.push('💰 Refunds apply only as described at purchase. *Failed OTPs are auto-refunded* to your balance.');
+  lines.push('');
+  lines.push('🎁 One genuine account per person. *Fake or duplicate referrals void all rewards.*');
+  lines.push('');
+  lines.push('━━━━━━━━━━━━━━━━━━━━');
+  lines.push('Do you accept these terms?');
 
-Please read and accept before using the bot. This keeps your purchases protected and your account safe.
-
-🔒 Accounts & sessions are sold *as-is*. Keep your files secure and never share them.
-
-⏰ Log in *one account at a time*, waiting 2–3 minutes between each. Rushing gets accounts frozen.
-
-🚫 No spam, mass messaging, or abuse. Misused accounts may freeze — that's *not our responsibility*.
-
-💰 Refunds apply only as described at purchase. *Failed OTPs are auto-refunded* to your balance.
-
-🎁 One genuine account per person. *Fake or duplicate referrals void all rewards.*
-
-━━━━━━━━━━━━━━━━━━━━
-Do you accept these terms?`;
+  const text = lines.join('\n');
 
   const keyboard = {
     inline_keyboard: [
@@ -115,29 +111,30 @@ Do you accept these terms?`;
   });
 }
 
-// ─────────────────────────────────────────
-// Main Menu
-// ─────────────────────────────────────────
-async function showMainMenu(userId, messageId = null) {
+async function showMainMenu(userId, messageId) {
+  if (typeof messageId === 'undefined') messageId = null;
+
   const refEnabled = (await db.getSetting('referral_enabled')) === '1';
   const refReward = await db.getSetting('referral_reward_inr') || '1';
-  const botUsername = (await bot.getMe()).username;
-  const refLink = `https://t.me/${botUsername}?start=ref_${userId}`;
+  const me = await bot.getMe();
+  const botUsername = me.username;
+  const refLink = 'https://t.me/' + botUsername + '?start=ref_' + userId;
 
   let text = '🏠 Use the menu below to get started →';
   if (refEnabled) {
-    text =
-`🎁 *Earn Money!*
-Refer friends and get ₹${refReward} when they join!
-🔗 ${refLink}
-
-Use the menu below to get started →`;
+    const lines = [];
+    lines.push('🎁 *Earn Money!*');
+    lines.push('Refer friends and get ₹' + refReward + ' when they join!');
+    lines.push('🔗 ' + refLink);
+    lines.push('');
+    lines.push('Use the menu below to get started →');
+    text = lines.join('\n');
   }
 
   const keyboard = utils.getMainMenuKeyboard();
 
   if (messageId) {
-    bot.editMessageText(text, { chat_id: userId, message_id: messageId, parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => {
+    bot.editMessageText(text, { chat_id: userId, message_id: messageId, parse_mode: 'Markdown', reply_markup: keyboard }).catch(function () {
       bot.sendMessage(userId, text, { parse_mode: 'Markdown', reply_markup: keyboard });
     });
   } else {
@@ -145,15 +142,12 @@ Use the menu below to get started →`;
   }
 }
 
-// ─────────────────────────────────────────
-// Callback Query Handler
-// ─────────────────────────────────────────
 bot.on('callback_query', async (query) => {
   const userId = query.from.id;
   const data = query.data;
   const messageId = query.message.message_id;
 
-  bot.answerCallbackQuery(query.id).catch(() => {});
+  bot.answerCallbackQuery(query.id).catch(function () {});
 
   if (await utils.isUserBanned(userId)) {
     return bot.sendMessage(userId, '🚫 You are banned.');
@@ -180,15 +174,15 @@ bot.on('callback_query', async (query) => {
       await showReferral(userId, messageId);
     } else if (data === 'support') {
       await showSupport(userId, messageId);
-    } else if (data.startsWith('buy_item_')) {
+    } else if (data.indexOf('buy_item_') === 0) {
       await showPurchaseConfirm(userId, messageId, parseInt(data.replace('buy_item_', '')));
-    } else if (data.startsWith('confirm_buy_')) {
+    } else if (data.indexOf('confirm_buy_') === 0) {
       await processPurchase(userId, messageId, parseInt(data.replace('confirm_buy_', '')));
     } else if (data === 'deposit_upi') {
       await showUpiOptions(userId, messageId);
     } else if (data === 'deposit_bnb') {
       await showBnbDeposit(userId, messageId);
-    } else if (data.startsWith('upi_app_')) {
+    } else if (data.indexOf('upi_app_') === 0) {
       const app = data.replace('upi_app_', '');
       getState(userId).upiApp = app;
       await askDepositAmount(userId, messageId, app);
@@ -214,21 +208,18 @@ async function handleAcceptTerms(userId, messageId) {
         'UPDATE users SET balance_inr = balance_inr + ?, referral_earned = referral_earned + ?, referral_count = referral_count + 1 WHERE user_id = ?',
         reward, reward, dbUser.referred_by
       );
-      bot.sendMessage(dbUser.referred_by,
-        `🎁 *Referral Reward!*\n\nSomeone joined using your link!\n✅ ₹${reward.toFixed(0)} added to your wallet!`,
-        { parse_mode: 'Markdown' }
-      ).catch(() => {});
+      const rewardText = '🎁 *Referral Reward!*\n\nSomeone joined using your link!\n✅ ₹' + reward.toFixed(0) + ' added to your wallet!';
+      bot.sendMessage(dbUser.referred_by, rewardText, { parse_mode: 'Markdown' }).catch(function () {});
     }
   }
 
   bot.editMessageText("✅ *You're all set!*\n\nTerms accepted successfully.", {
     chat_id: userId, message_id: messageId, parse_mode: 'Markdown'
-  }).then(() => showMainMenu(userId));
+  }).then(function () {
+    showMainMenu(userId);
+  });
 }
 
-// ─────────────────────────────────────────
-// Products
-// ─────────────────────────────────────────
 async function showProducts(userId, messageId) {
   const products = await db.getActiveProducts();
   const rate = parseFloat(await db.getSetting('usdt_to_inr_rate')) || 90;
@@ -239,13 +230,14 @@ async function showProducts(userId, messageId) {
     });
   }
 
-  let text = `✨ *Select Product*\n⚡ Rate: 1 USDT = ₹${rate.toFixed(1)}\n\n`;
+  let text = '✨ *Select Product*\n⚡ Rate: 1 USDT = ₹' + rate.toFixed(1) + '\n\n';
   const keyboard = [];
 
-  for (const p of products) {
+  for (let i = 0; i < products.length; i++) {
+    const p = products[i];
     const usdt = await utils.inrToUsdt(p.price_inr);
-    text += `📦 ${p.name} | $${usdt.toFixed(2)} • ₹${p.price_inr.toFixed(0)} | ${p.stock} In Stock\n`;
-    keyboard.push([{ text: `📦 ${p.name} | ₹${p.price_inr.toFixed(0)}`, callback_data: `buy_item_${p.id}` }]);
+    text += '📦 ' + p.name + ' | $' + usdt.toFixed(2) + ' • ₹' + p.price_inr.toFixed(0) + ' | ' + p.stock + ' In Stock\n';
+    keyboard.push([{ text: '📦 ' + p.name + ' | ₹' + p.price_inr.toFixed(0), callback_data: 'buy_item_' + p.id }]);
   }
   keyboard.push([{ text: '🏠 Main Menu', callback_data: 'main_menu' }]);
 
@@ -266,24 +258,26 @@ async function showPurchaseConfirm(userId, messageId, productId) {
 
   const balanceStatus = balance >= price ? '✅ Sufficient' : '⚠️ *Insufficient balance! Please deposit first.*';
 
-  const text =
-`🛒 *PURCHASE CONFIRMATION*
-━━━━━━━━━━━━━━━━━━━━
+  const lines = [];
+  lines.push('🛒 *PURCHASE CONFIRMATION*');
+  lines.push('━━━━━━━━━━━━━━━━━━━━');
+  lines.push('');
+  lines.push('📦 *' + product.name + '*');
+  lines.push('');
+  lines.push(product.description || 'Premium Digital Product');
+  lines.push('');
+  lines.push('*Payment:*');
+  lines.push('💰 Price: $' + usdtPrice.toFixed(2) + ' • ₹' + price.toFixed(0));
+  lines.push('💳 Balance: $' + usdtBalance.toFixed(2) + ' • ₹' + balance.toFixed(0));
+  lines.push(balanceStatus);
+  lines.push('');
+  lines.push('✅ Please use Telegram X.');
+  lines.push('🚫 We are not responsible for any freeze/ban');
 
-📦 *${product.name}*
-
-${product.description || 'Premium Digital Product'}
-
-*Payment:*
-💰 Price: $${usdtPrice.toFixed(2)} • ₹${price.toFixed(0)}
-💳 Balance: $${usdtBalance.toFixed(2)} • ₹${balance.toFixed(0)}
-${balanceStatus}
-
-✅ Please use Telegram X.
-🚫 We are not responsible for any freeze/ban`;
+  const text = lines.join('\n');
 
   const keyboard = [];
-  if (balance >= price) keyboard.push([{ text: '✅ Confirm & Buy', callback_data: `confirm_buy_${productId}` }]);
+  if (balance >= price) keyboard.push([{ text: '✅ Confirm & Buy', callback_data: 'confirm_buy_' + productId }]);
   keyboard.push([{ text: '« Back', callback_data: 'buy_product' }, { text: '❌ Cancel', callback_data: 'main_menu' }]);
 
   bot.editMessageText(text, { chat_id: userId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard } });
@@ -307,15 +301,11 @@ async function processPurchase(userId, messageId, productId) {
     userId, productId, product.price_inr, product.content
   );
 
-  bot.editMessageText(
-    `✅ *Purchase Successful!*\n\n📦 *${product.name}*\n\n*Your Product:*\n\`${product.content}\`\n\nKeep this safe! 🔒`,
-    { chat_id: userId, message_id: messageId, parse_mode: 'Markdown', reply_markup: utils.getBackKeyboard() }
-  );
+  const text = '✅ *Purchase Successful!*\n\n📦 *' + product.name + '*\n\n*Your Product:*\n`' + product.content + '`\n\nKeep this safe! 🔒';
+
+  bot.editMessageText(text, { chat_id: userId, message_id: messageId, parse_mode: 'Markdown', reply_markup: utils.getBackKeyboard() });
 }
 
-// ─────────────────────────────────────────
-// Profile
-// ─────────────────────────────────────────
 async function showProfile(userId, messageId) {
   const u = await db.getUser(userId);
   if (!u) return;
@@ -325,39 +315,39 @@ async function showProfile(userId, messageId) {
   const spentUsdt = await utils.inrToUsdt(u.total_spent);
   const earnedUsdt = await utils.inrToUsdt(u.referral_earned);
   const refReward = await db.getSetting('referral_reward_inr') || '1';
-  const botUsername = (await bot.getMe()).username;
+  const me = await bot.getMe();
+  const botUsername = me.username;
 
-  const text =
-`👤 *YOUR PROFILE*
-━━━━━━━━━━━━━━━━━━━━
+  const lines = [];
+  lines.push('👤 *YOUR PROFILE*');
+  lines.push('━━━━━━━━━━━━━━━━━━━━');
+  lines.push('');
+  lines.push('*Account Information*');
+  lines.push('👤 ' + u.full_name);
+  lines.push('🆔 ' + u.user_id);
+  lines.push('📅 Joined ' + utils.formatDateTime(u.joined_at));
+  lines.push('');
+  lines.push('*Wallet*');
+  lines.push('💰 Balance: $' + balanceUsdt.toFixed(2) + ' • ₹' + u.balance_inr.toFixed(0));
+  lines.push('📥 Deposited: $' + depositedUsdt.toFixed(2) + ' • ₹' + u.total_deposited.toFixed(0));
+  lines.push('🛍️ Spent: $' + spentUsdt.toFixed(2) + ' • ₹' + u.total_spent.toFixed(0));
+  lines.push('🛒 Purchases: ' + u.total_purchases);
+  lines.push('');
+  lines.push('*Referral Program*');
+  lines.push('👥 Referrals: ' + u.referral_count);
+  lines.push('💰 Earned: $' + earnedUsdt.toFixed(2) + ' • ₹' + u.referral_earned.toFixed(0));
+  lines.push('💡 Reward: ₹' + refReward + ' per validated join');
+  lines.push('');
+  lines.push('*Your Referral Link:*');
+  lines.push('https://t.me/' + botUsername + '?start=ref_' + userId);
+  lines.push('');
+  lines.push('_Share your link — earn ₹' + refReward + ' when they join!_');
 
-*Account Information*
-👤 ${u.full_name}
-🆔 ${u.user_id}
-📅 Joined ${utils.formatDateTime(u.joined_at)}
-
-*Wallet*
-💰 Balance: $${balanceUsdt.toFixed(2)} • ₹${u.balance_inr.toFixed(0)}
-📥 Deposited: $${depositedUsdt.toFixed(2)} • ₹${u.total_deposited.toFixed(0)}
-🛍️ Spent: $${spentUsdt.toFixed(2)} • ₹${u.total_spent.toFixed(0)}
-🛒 Purchases: ${u.total_purchases}
-
-*Referral Program*
-👥 Referrals: ${u.referral_count}
-💰 Earned: $${earnedUsdt.toFixed(2)} • ₹${u.referral_earned.toFixed(0)}
-💡 Reward: ₹${refReward} per validated join
-
-*Your Referral Link:*
-https://t.me/${botUsername}?start=ref_${userId}
-
-_Share your link — earn ₹${refReward} when they join!_`;
+  const text = lines.join('\n');
 
   bot.editMessageText(text, { chat_id: userId, message_id: messageId, parse_mode: 'Markdown', reply_markup: utils.getBackKeyboard() });
 }
 
-// ─────────────────────────────────────────
-// Deposit
-// ─────────────────────────────────────────
 async function showDepositMenu(userId, messageId) {
   const upiOn = (await db.getSetting('upi_enabled')) === '1';
   const bnbOn = (await db.getSetting('bnb_enabled')) === '1';
@@ -392,7 +382,7 @@ async function showUpiOptions(userId, messageId) {
   }
   keyboard.push([{ text: '« Back', callback_data: 'deposit' }]);
 
-  const text = `📱 *UPI Payment*\n\n✅ Minimum: ₹${minDep}\n⚠️ Manual verification after screenshot\n\nChoose your UPI app:`;
+  const text = '📱 *UPI Payment*\n\n✅ Minimum: ₹' + minDep + '\n⚠️ Manual verification after screenshot\n\nChoose your UPI app:';
 
   bot.editMessageText(text, { chat_id: userId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard } });
 }
@@ -406,33 +396,34 @@ async function askDepositAmount(userId, messageId, upiApp) {
   state.waitingDepositAmount = true;
   state.upiApp = upiApp;
 
-  bot.editMessageText(
-    `📱 *${appName} Payment*\n\n✅ Minimum: ₹${minDep}\n\nEnter amount in ₹ (minimum ₹${minDep}):`,
-    { chat_id: userId, message_id: messageId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '« Back', callback_data: 'deposit_upi' }]] } }
-  );
+  const text = '📱 *' + appName + ' Payment*\n\n✅ Minimum: ₹' + minDep + '\n\nEnter amount in ₹ (minimum ₹' + minDep + '):';
+
+  bot.editMessageText(text, {
+    chat_id: userId, message_id: messageId, parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: [[{ text: '« Back', callback_data: 'deposit_upi' }]] }
+  });
 }
 
 async function showBnbDeposit(userId, messageId) {
   const bnbAddress = await db.getSetting('bnb_address') || 'YOUR_BNB_ADDRESS';
   const refId = utils.generateRefId(userId);
 
-  const text =
-`🟡 *BNB Smart Chain (BEP20) Deposit*
+  const lines = [];
+  lines.push('🟡 *BNB Smart Chain (BEP20) Deposit*');
+  lines.push('');
+  lines.push('Send *USDT (BEP20)* to:');
+  lines.push('`' + bnbAddress + '`');
+  lines.push('');
+  lines.push('📝 Ref ID: `' + refId + '`');
+  lines.push('');
+  lines.push('⚠️ Send only BEP20 USDT');
+  lines.push('✅ Balance will be added after confirmation');
 
-Send *USDT (BEP20)* to:
-\`${bnbAddress}\`
-
-📝 Ref ID: \`${refId}\`
-
-⚠️ Send only BEP20 USDT
-✅ Balance will be added after confirmation`;
+  const text = lines.join('\n');
 
   bot.editMessageText(text, { chat_id: userId, message_id: messageId, parse_mode: 'Markdown', reply_markup: utils.getBackKeyboard('deposit') });
 }
 
-// ─────────────────────────────────────────
-// Refer & Earn
-// ─────────────────────────────────────────
 async function showReferral(userId, messageId) {
   const refEnabled = (await db.getSetting('referral_enabled')) === '1';
 
@@ -445,34 +436,31 @@ async function showReferral(userId, messageId) {
   const u = await db.getUser(userId);
   const refReward = await db.getSetting('referral_reward_inr') || '1';
   const earnedUsdt = await utils.inrToUsdt(u.referral_earned);
-  const botUsername = (await bot.getMe()).username;
-  const refLink = `https://t.me/${botUsername}?start=ref_${userId}`;
+  const me = await bot.getMe();
+  const botUsername = me.username;
+  const refLink = 'https://t.me/' + botUsername + '?start=ref_' + userId;
 
-  const text =
-`🎁 *Refer & Earn*
+  const lines = [];
+  lines.push('🎁 *Refer & Earn*');
+  lines.push('');
+  lines.push('👥 Referrals: ' + u.referral_count);
+  lines.push('💰 Total Earned: $' + earnedUsdt.toFixed(2) + ' • ₹' + u.referral_earned.toFixed(0));
+  lines.push('💡 Reward: ₹' + refReward + ' per validated join');
+  lines.push('');
+  lines.push('*Your Referral Link:*');
+  lines.push('`' + refLink + '`');
+  lines.push('');
+  lines.push('_Share your link and earn ₹' + refReward + ' for every person who joins!_');
 
-👥 Referrals: ${u.referral_count}
-💰 Total Earned: $${earnedUsdt.toFixed(2)} • ₹${u.referral_earned.toFixed(0)}
-💡 Reward: ₹${refReward} per validated join
-
-*Your Referral Link:*
-\`${refLink}\`
-
-_Share your link and earn ₹${refReward} for every person who joins!_`;
+  const text = lines.join('\n');
 
   bot.editMessageText(text, { chat_id: userId, message_id: messageId, parse_mode: 'Markdown', reply_markup: utils.getBackKeyboard() });
 }
 
-// ─────────────────────────────────────────
-// Support
-// ─────────────────────────────────────────
 async function showSupport(userId, messageId) {
   const supportLink = await db.getSetting('support_link') || config.SUPPORT_LINK;
 
-  const text =
-`🟢 *Support & Relevant Information*
-
-⚠️ All purchases made are final — no refunds or replacements will be provided under any circumstances, and all products are bought entirely at the buyer's own risk.`;
+  const text = '🟢 *Support & Relevant Information*\n\n⚠️ All purchases made are final — no refunds or replacements will be provided under any circumstances, and all products are bought entirely at the buyer\'s own risk.';
 
   const keyboard = {
     inline_keyboard: [
@@ -484,12 +472,9 @@ async function showSupport(userId, messageId) {
   bot.editMessageText(text, { chat_id: userId, message_id: messageId, parse_mode: 'Markdown', reply_markup: keyboard });
 }
 
-// ─────────────────────────────────────────
-// Text & Photo messages (deposit amount + screenshot)
-// ─────────────────────────────────────────
 bot.on('message', async (msg) => {
   const userId = msg.from.id;
-  if (msg.text && msg.text.startsWith('/')) return; // skip commands
+  if (msg.text && msg.text.indexOf('/') === 0) return;
   if (await utils.isUserBanned(userId)) return;
 
   const state = getState(userId);
@@ -507,33 +492,4 @@ async function handleDepositAmount(userId, text) {
   const amount = parseFloat(text);
   if (isNaN(amount)) return bot.sendMessage(userId, '❌ Please enter a valid number.');
 
-  const minDep = parseFloat(await db.getSetting('min_deposit_inr')) || 20;
-  if (amount < minDep) return bot.sendMessage(userId, `❌ Minimum deposit is ₹${minDep.toFixed(0)}`);
-
-  const state = getState(userId);
-  state.waitingDepositAmount = false;
-  const upiApp = state.upiApp || 'any';
-  const appNames = { gpay: 'GPay', fampay: 'FamPay', any: 'UPI' };
-  const appName = appNames[upiApp] || 'UPI';
-
-  const qr = await db.getActiveQR('upi', upiApp);
-  const upiId = await db.getSetting('upi_id') || 'yourname@upi';
-  const refId = utils.generateRefId(userId);
-  const amountUsdt = await utils.inrToUsdt(amount);
-
-  await db.getDB().run(
-    'INSERT INTO deposits (user_id, amount_inr, ref_id, payment_method, upi_app) VALUES (?, ?, ?, ?, ?)',
-    userId, amount, refId, 'upi', upiApp
-  );
-
-  state.currentRefId = refId;
-  state.waitingScreenshot = true;
-
-  const text2 =
-`⚡ Scan The Above QR Code to Pay:
-₹${amount.toFixed(0)} ($${amountUsdt.toFixed(2)} (~₹${amount.toFixed(0)}))
-
-📝 Ref ID: \`${refId}\`
-💳 UPI ID: \`${upiId}\`
-
-👉 Open *${appNam
+  const minDep = parseFloat(await db.getSetting('min_d
